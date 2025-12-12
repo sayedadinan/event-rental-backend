@@ -203,3 +203,39 @@ exports.getOverdueBookings = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+// Get returned bookings (old bookings / history)
+exports.getReturnedBookings = async (req, res) => {
+    try {
+        const bookings = await Booking.find({ status: 'returned' })
+            .populate('customerId', 'name phoneNumber')
+            .sort({ actualReturnDate: -1 }); // Latest returns first
+
+        res.json({ 
+            success: true, 
+            count: bookings.length,
+            data: bookings 
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Get pending returns (active + overdue, not yet returned)
+exports.getPendingReturns = async (req, res) => {
+    try {
+        const bookings = await Booking.find({
+            status: { $in: ['active', 'overdue'] }
+        })
+            .populate('customerId', 'name phoneNumber')
+            .sort({ returnDate: 1 }); // Earliest due date first
+
+        res.json({ 
+            success: true,
+            count: bookings.length, 
+            data: bookings 
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};

@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: event-rental-backend
+    env: node
+    region: singapore # or oregon, frankfurt based on location
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false # Set this manually in Render dashboard
+      - key: CORS_ORIGIN
+        sync: false # Your frontend URL
+      - key: WHATSAPP_ENABLED
+        value: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        value: ""
+      - key: WHATSAPP_ACCESS_TOKEN
+        value: ""

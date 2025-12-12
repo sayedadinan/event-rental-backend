@@ -2,15 +2,19 @@
 
 Complete REST API for managing event rental inventory, bookings, and returns.
 
+**Live API:** https://event-rental-backend-943e.onrender.com
+
 ## Features
 
 - ✅ Product/Stock Management (CRUD)
 - ✅ Auto Customer Management (created during booking)
 - ✅ Booking/Rental System
 - ✅ Return Management with Auto Stock Restocking
+- ✅ Pending Returns & History Tracking
 - ✅ WhatsApp Invoice Integration (Meta Cloud API)
 - ✅ Overdue Tracking
-- ✅ MongoDB Database
+- ✅ MongoDB Atlas Database
+- ✅ Production-ready Security (Helmet, Rate Limiting, Sanitization)
 
 ## Tech Stack
 

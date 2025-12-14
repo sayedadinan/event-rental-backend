@@ -266,13 +266,30 @@ exports.partialReturn = async (req, res) => {
 
         await booking.save();
 
+        // Calculate remaining items for response
+        const remainingItems = booking.items
+            .filter(item => item.pendingQuantity > 0)
+            .map(item => ({
+                productName: item.productName,
+                totalQuantity: item.quantity,
+                returnedQuantity: item.returnedQuantity,
+                pendingQuantity: item.pendingQuantity
+            }));
+
         res.json({
             success: true,
             message: allItemsReturned ? 'All items returned' : 'Partial return processed',
             data: {
                 booking,
                 processedItems,
-                allItemsReturned
+                remainingItems,
+                allItemsReturned,
+                paymentSummary: {
+                    totalAmount: booking.totalAmount,
+                    amountPaid: booking.amountPaid,
+                    amountPending: booking.amountPending,
+                    paymentStatus: booking.paymentStatus
+                }
             }
         });
 

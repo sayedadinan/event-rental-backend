@@ -4,6 +4,47 @@ const Customer = require('../models/Customer');
 const { findOrCreateCustomer } = require('./customerController');
 const whatsappService = require('../config/whatsapp');
 
+// Helper function to format booking with remaining items info
+const formatBookingWithRemainingInfo = (booking) => {
+    const bookingObj = booking.toObject ? booking.toObject() : booking;
+    
+    // Calculate remaining items summary
+    const itemsSummary = {
+        totalItems: bookingObj.items.length,
+        fullyReturnedItems: 0,
+        partiallyReturnedItems: 0,
+        pendingItems: 0,
+        remainingItems: []
+    };
+
+    bookingObj.items.forEach(item => {
+        if (item.returnedQuantity === item.quantity) {
+            itemsSummary.fullyReturnedItems++;
+        } else if (item.returnedQuantity > 0 && item.returnedQuantity < item.quantity) {
+            itemsSummary.partiallyReturnedItems++;
+            itemsSummary.remainingItems.push({
+                productName: item.productName,
+                totalQuantity: item.quantity,
+                returnedQuantity: item.returnedQuantity,
+                pendingQuantity: item.pendingQuantity
+            });
+        } else {
+            itemsSummary.pendingItems++;
+            itemsSummary.remainingItems.push({
+                productName: item.productName,
+                totalQuantity: item.quantity,
+                returnedQuantity: 0,
+                pendingQuantity: item.quantity
+            });
+        }
+    });
+
+    return {
+        ...bookingObj,
+        itemsSummary
+    };
+};
+
 // Create new booking
 exports.createBooking = async (req, res) => {
     try {
@@ -134,7 +175,9 @@ exports.getAllBookings = async (req, res) => {
             .populate('customerId', 'name phoneNumber')
             .sort({ createdAt: -1 });
 
-        res.json({ success: true, data: bookings });
+        const formattedBookings = bookings.map(booking => formatBookingWithRemainingInfo(booking));
+
+        res.json({ success: true, data: formattedBookings });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -150,7 +193,9 @@ exports.getBooking = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Booking not found' });
         }
 
-        res.json({ success: true, data: booking });
+        const formattedBooking = formatBookingWithRemainingInfo(booking);
+
+        res.json({ success: true, data: formattedBooking });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -163,7 +208,9 @@ exports.getActiveBookings = async (req, res) => {
             .populate('customerId', 'name phoneNumber')
             .sort({ returnDate: 1 });
 
-        res.json({ success: true, data: bookings });
+        const formattedBookings = bookings.map(booking => formatBookingWithRemainingInfo(booking));
+
+        res.json({ success: true, data: formattedBookings });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -182,7 +229,9 @@ exports.getDueToday = async (req, res) => {
             returnDate: { $gte: today, $lt: tomorrow }
         }).populate('customerId', 'name phoneNumber');
 
-        res.json({ success: true, data: bookings });
+        const formattedBookings = bookings.map(booking => formatBookingWithRemainingInfo(booking));
+
+        res.json({ success: true, data: formattedBookings });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -207,7 +256,9 @@ exports.getOverdueBookings = async (req, res) => {
             }
         }
 
-        res.json({ success: true, data: bookings });
+        const formattedBookings = bookings.map(booking => formatBookingWithRemainingInfo(booking));
+
+        res.json({ success: true, data: formattedBookings });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -220,10 +271,12 @@ exports.getReturnedBookings = async (req, res) => {
             .populate('customerId', 'name phoneNumber')
             .sort({ actualReturnDate: -1 }); // Latest returns first
 
+        const formattedBookings = bookings.map(booking => formatBookingWithRemainingInfo(booking));
+
         res.json({ 
             success: true, 
             count: bookings.length,
-            data: bookings 
+            data: formattedBookings 
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -239,10 +292,12 @@ exports.getPendingReturns = async (req, res) => {
             .populate('customerId', 'name phoneNumber')
             .sort({ returnDate: 1 }); // Earliest due date first
 
+        const formattedBookings = bookings.map(booking => formatBookingWithRemainingInfo(booking));
+
         res.json({ 
             success: true,
             count: bookings.length, 
-            data: bookings 
+            data: formattedBookings 
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

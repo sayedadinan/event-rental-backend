@@ -13,5 +13,6 @@ router.get('/overdue', bookingController.getOverdueBookings);
 
 // Dynamic route MUST be last
 router.get('/:id', bookingController.getBooking);
+router.patch('/:id/payment', bookingController.updatePayment);
 
 module.exports = router;

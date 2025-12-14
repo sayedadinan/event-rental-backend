@@ -47,6 +47,15 @@ const bookingSchema = new mongoose.Schema({
             required: true,
             min: [1, 'Quantity must be at least 1']
         },
+        returnedQuantity: {
+            type: Number,
+            default: 0,
+            min: 0
+        },
+        pendingQuantity: {
+            type: Number,
+            default: function() { return this.quantity; }
+        },
         perDayRent: {
             type: Number,
             required: true
@@ -65,10 +74,27 @@ const bookingSchema = new mongoose.Schema({
         required: true,
         min: [0, 'Total amount cannot be negative']
     },
+    paymentStatus: {
+        type: String,
+        enum: ['pending', 'partial', 'full'],
+        default: 'pending'
+    },
+    amountPaid: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    amountPending: {
+        type: Number,
+        default: function() { return this.totalAmount; }
+    },
     status: {
         type: String,
         enum: ['active', 'returned', 'overdue'],
         default: 'active'
+    },
+    notes: {
+        type: String
     },
     invoiceUrl: {
         type: String

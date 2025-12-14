@@ -18,6 +18,15 @@ const customerSchema = new mongoose.Schema({
             message: 'Please enter a valid phone number'
         }
     },
+    email: {
+        type: String,
+        trim: true,
+        lowercase: true
+    },
+    address: {
+        type: String,
+        trim: true
+    },
     totalBookings: {
         type: Number,
         default: 0

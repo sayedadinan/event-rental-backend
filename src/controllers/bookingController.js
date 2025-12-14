@@ -73,15 +73,24 @@ exports.createBooking = async (req, res) => {
             await product.save();
         }
 
-        // Create booking
+        // Create booking with payment tracking
+        const bookingItemsWithTracking = bookingItems.map(item => ({
+            ...item,
+            returnedQuantity: 0,
+            pendingQuantity: item.quantity
+        }));
+
         const newBooking = await Booking.create({
             customerId: customer._id,
             customerName: customer.name,
             customerPhone: customer.phoneNumber,
             bookingDate,
             returnDate,
-            items: bookingItems,
+            items: bookingItemsWithTracking,
             totalAmount,
+            paymentStatus: 'pending',
+            amountPaid: 0,
+            amountPending: totalAmount,
             status: 'active'
         });
 
@@ -234,6 +243,50 @@ exports.getPendingReturns = async (req, res) => {
             success: true,
             count: bookings.length, 
             data: bookings 
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Update payment
+exports.updatePayment = async (req, res) => {
+    try {
+        const { amountPaid, paymentStatus } = req.body;
+
+        const booking = await Booking.findById(req.params.id);
+        
+        if (!booking) {
+            return res.status(404).json({
+                success: false,
+                message: 'Booking not found'
+            });
+        }
+
+        // Update payment
+        if (amountPaid !== undefined) {
+            booking.amountPaid = amountPaid;
+            booking.amountPending = booking.totalAmount - amountPaid;
+        }
+
+        if (paymentStatus) {
+            booking.paymentStatus = paymentStatus;
+        }
+
+        // Auto-set payment status based on amount
+        if (booking.amountPaid >= booking.totalAmount) {
+            booking.paymentStatus = 'full';
+            booking.amountPending = 0;
+        } else if (booking.amountPaid > 0) {
+            booking.paymentStatus = 'partial';
+        }
+
+        await booking.save();
+
+        res.json({
+            success: true,
+            message: 'Payment updated successfully',
+            data: booking
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

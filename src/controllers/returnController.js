@@ -167,3 +167,116 @@ exports.getReturnedBookings = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+// Partial return with payment tracking
+exports.partialReturn = async (req, res) => {
+    try {
+        const { bookingId } = req.params;
+        const { returnedItems, paymentStatus, amountReceived, notes } = req.body;
+
+        if (!returnedItems || returnedItems.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No items provided for return'
+            });
+        }
+
+        const booking = await Booking.findById(bookingId);
+
+        if (!booking) {
+            return res.status(404).json({ success: false, message: 'Booking not found' });
+        }
+
+        if (booking.status === 'returned') {
+            return res.status(400).json({
+                success: false,
+                message: 'Booking already fully returned'
+            });
+        }
+
+        const processedItems = [];
+        let allItemsReturned = true;
+
+        // Process each returned item
+        for (const returnItem of returnedItems) {
+            const bookingItem = booking.items.find(
+                item => item.productId.toString() === returnItem.productId
+            );
+
+            if (!bookingItem) {
+                continue;
+            }
+
+            // Update returned quantity
+            const quantityToReturn = Math.min(
+                returnItem.quantity,
+                bookingItem.quantity - bookingItem.returnedQuantity
+            );
+
+            if (quantityToReturn > 0 && returnItem.returned) {
+                bookingItem.returnedQuantity += quantityToReturn;
+                bookingItem.pendingQuantity = bookingItem.quantity - bookingItem.returnedQuantity;
+
+                // Restock the product
+                const product = await Product.findById(returnItem.productId);
+                if (product) {
+                    product.availableQuantity += quantityToReturn;
+                    await product.save();
+                }
+
+                processedItems.push({
+                    productId: returnItem.productId,
+                    productName: bookingItem.productName,
+                    returned: quantityToReturn,
+                    pending: bookingItem.pendingQuantity
+                });
+            }
+
+            // Check if this item still has pending quantity
+            if (bookingItem.pendingQuantity > 0) {
+                allItemsReturned = false;
+            }
+        }
+
+        // Update payment info
+        if (amountReceived !== undefined) {
+            booking.amountPaid += amountReceived;
+            booking.amountPending = Math.max(0, booking.totalAmount - booking.amountPaid);
+            
+            if (booking.amountPaid >= booking.totalAmount) {
+                booking.paymentStatus = 'full';
+            } else if (booking.amountPaid > 0) {
+                booking.paymentStatus = 'partial';
+            }
+        }
+
+        if (paymentStatus) {
+            booking.paymentStatus = paymentStatus;
+        }
+
+        if (notes) {
+            booking.notes = notes;
+        }
+
+        // Mark as returned if all items are back
+        if (allItemsReturned) {
+            booking.status = 'returned';
+            booking.actualReturnDate = new Date();
+        }
+
+        await booking.save();
+
+        res.json({
+            success: true,
+            message: allItemsReturned ? 'All items returned' : 'Partial return processed',
+            data: {
+                booking,
+                processedItems,
+                allItemsReturned
+            }
+        });
+
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};

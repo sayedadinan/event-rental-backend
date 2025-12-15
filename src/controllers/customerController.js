@@ -186,7 +186,7 @@ exports.updateCustomer = async (req, res) => {
 // Get customer ledger (transaction history and balance)
 exports.getCustomerLedger = async (req, res) => {
     try {
-        const { customerId } = req.params;
+        const customerId = req.params.id;
 
         const customer = await Customer.findById(customerId);
         
@@ -236,7 +236,7 @@ exports.getCustomerLedger = async (req, res) => {
 // Record customer payment
 exports.recordPayment = async (req, res) => {
     try {
-        const { customerId } = req.params;
+        const customerId = req.params.id;
         const { amount, paymentMethod, bookingId, notes } = req.body;
 
         if (!amount || amount <= 0) {

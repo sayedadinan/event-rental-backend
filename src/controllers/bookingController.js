@@ -1,7 +1,7 @@
 const Booking = require('../models/Booking');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
-const { findOrCreateCustomer } = require('./customerController');
+const { findOrCreateCustomer, createTransaction } = require('./customerController');
 const whatsappService = require('../config/whatsapp');
 
 // Helper function to format booking with remaining items info
@@ -138,6 +138,17 @@ exports.createBooking = async (req, res) => {
         // Update customer booking count
         customer.totalBookings += 1;
         await customer.save();
+
+        // Create ledger transaction for new booking
+        await createTransaction(
+            customer._id,
+            customer.name,
+            'booking',
+            totalAmount,
+            newBooking._id,
+            null,
+            `New booking created - ${bookingItems.length} items`
+        );
 
         // Populate product details
         await newBooking.populate('items.productId');
@@ -307,9 +318,10 @@ exports.getPendingReturns = async (req, res) => {
 // Update payment
 exports.updatePayment = async (req, res) => {
     try {
-        const { amountPaid, paymentStatus } = req.body;
+        const { amountPaid, paymentStatus, paymentMethod } = req.body;
 
-        const booking = await Booking.findById(req.params.id);
+        const booking = await Booking.findById(req.params.id)
+            .populate('customerId', 'name phoneNumber');
         
         if (!booking) {
             return res.status(404).json({
@@ -317,6 +329,8 @@ exports.updatePayment = async (req, res) => {
                 message: 'Booking not found'
             });
         }
+
+        const previousAmountPaid = booking.amountPaid;
 
         // Update payment
         if (amountPaid !== undefined) {
@@ -337,6 +351,20 @@ exports.updatePayment = async (req, res) => {
         }
 
         await booking.save();
+
+        // Create ledger transaction if payment amount increased
+        if (amountPaid !== undefined && amountPaid > previousAmountPaid) {
+            const paymentReceived = amountPaid - previousAmountPaid;
+            await createTransaction(
+                booking.customerId._id,
+                booking.customerId.name,
+                'payment',
+                paymentReceived,
+                booking._id,
+                paymentMethod || 'cash',
+                'Payment update'
+            );
+        }
 
         res.json({
             success: true,

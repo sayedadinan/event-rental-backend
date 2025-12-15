@@ -1,5 +1,6 @@
 const Customer = require('../models/Customer');
 const Booking = require('../models/Booking');
+const CustomerTransaction = require('../models/CustomerTransaction');
 
 // Get all customers
 exports.getAllCustomers = async (req, res) => {
@@ -179,5 +180,179 @@ exports.updateCustomer = async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Get customer ledger (transaction history and balance)
+exports.getCustomerLedger = async (req, res) => {
+    try {
+        const { customerId } = req.params;
+
+        const customer = await Customer.findById(customerId);
+        
+        if (!customer) {
+            return res.status(404).json({
+                success: false,
+                message: 'Customer not found'
+            });
+        }
+
+        // Get all transactions for this customer
+        const transactions = await CustomerTransaction.find({ customerId })
+            .sort({ createdAt: -1 })
+            .populate('bookingId', 'bookingDate returnDate status');
+
+        // Calculate totals
+        let totalBookings = 0;
+        let totalPaid = 0;
+
+        transactions.forEach(transaction => {
+            if (transaction.transactionType === 'booking') {
+                totalBookings += transaction.amount;
+            } else if (transaction.transactionType === 'payment' || transaction.transactionType === 'return') {
+                totalPaid += transaction.amount;
+            }
+        });
+
+        const totalPending = totalBookings - totalPaid;
+
+        res.json({
+            success: true,
+            data: {
+                customerId: customer._id,
+                customerName: customer.name,
+                customerPhone: customer.phoneNumber,
+                totalBookings,
+                totalPaid,
+                totalPending,
+                transactions
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Record customer payment
+exports.recordPayment = async (req, res) => {
+    try {
+        const { customerId } = req.params;
+        const { amount, paymentMethod, bookingId, notes } = req.body;
+
+        if (!amount || amount <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Valid payment amount is required'
+            });
+        }
+
+        if (!paymentMethod) {
+            return res.status(400).json({
+                success: false,
+                message: 'Payment method is required'
+            });
+        }
+
+        const customer = await Customer.findById(customerId);
+        
+        if (!customer) {
+            return res.status(404).json({
+                success: false,
+                message: 'Customer not found'
+            });
+        }
+
+        // Calculate current balance
+        const transactions = await CustomerTransaction.find({ customerId });
+        let currentBalance = 0;
+
+        transactions.forEach(transaction => {
+            if (transaction.transactionType === 'booking') {
+                currentBalance += transaction.amount;
+            } else if (transaction.transactionType === 'payment' || transaction.transactionType === 'return') {
+                currentBalance -= transaction.amount;
+            }
+        });
+
+        // Create payment transaction
+        const transaction = await CustomerTransaction.create({
+            customerId,
+            customerName: customer.name,
+            bookingId: bookingId || null,
+            transactionType: 'payment',
+            amount,
+            balanceBefore: currentBalance,
+            balanceAfter: currentBalance - amount,
+            paymentMethod,
+            notes: notes || 'Payment received'
+        });
+
+        // Update booking payment if bookingId provided
+        if (bookingId) {
+            const booking = await Booking.findById(bookingId);
+            if (booking) {
+                booking.amountPaid += amount;
+                booking.amountPending = Math.max(0, booking.totalAmount - booking.amountPaid);
+                
+                if (booking.amountPaid >= booking.totalAmount) {
+                    booking.paymentStatus = 'full';
+                } else if (booking.amountPaid > 0) {
+                    booking.paymentStatus = 'partial';
+                }
+                
+                await booking.save();
+            }
+        }
+
+        res.json({
+            success: true,
+            message: 'Payment recorded successfully',
+            data: transaction
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Helper function to create transaction (used by other controllers)
+exports.createTransaction = async (customerId, customerName, transactionType, amount, bookingId = null, paymentMethod = null, notes = '') => {
+    try {
+        // Calculate current balance
+        const transactions = await CustomerTransaction.find({ customerId });
+        let currentBalance = 0;
+
+        transactions.forEach(transaction => {
+            if (transaction.transactionType === 'booking') {
+                currentBalance += transaction.amount;
+            } else if (transaction.transactionType === 'payment' || transaction.transactionType === 'return') {
+                currentBalance -= transaction.amount;
+            }
+        });
+
+        // Calculate new balance
+        let balanceAfter;
+        if (transactionType === 'booking') {
+            balanceAfter = currentBalance + amount;
+        } else {
+            balanceAfter = currentBalance - amount;
+        }
+
+        // Create transaction
+        const transaction = await CustomerTransaction.create({
+            customerId,
+            customerName,
+            bookingId,
+            transactionType,
+            amount,
+            balanceBefore: currentBalance,
+            balanceAfter,
+            paymentMethod,
+            notes
+        });
+
+        return transaction;
+    } catch (error) {
+        console.error('Error creating transaction:', error);
+        return null;
     }
 };

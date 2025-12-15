@@ -1,5 +1,6 @@
 const Booking = require('../models/Booking');
 const Product = require('../models/Product');
+const { createTransaction } = require('./customerController');
 
 // Mark entire booking as returned (restock all items)
 exports.returnBooking = async (req, res) => {
@@ -239,7 +240,7 @@ exports.partialReturn = async (req, res) => {
         }
 
         // Update payment info
-        if (amountReceived !== undefined) {
+        if (amountReceived !== undefined && amountReceived > 0) {
             booking.amountPaid += amountReceived;
             booking.amountPending = Math.max(0, booking.totalAmount - booking.amountPaid);
             
@@ -248,6 +249,17 @@ exports.partialReturn = async (req, res) => {
             } else if (booking.amountPaid > 0) {
                 booking.paymentStatus = 'partial';
             }
+
+            // Create ledger transaction for return payment
+            await createTransaction(
+                booking.customerId,
+                booking.customerName,
+                'return',
+                amountReceived,
+                booking._id,
+                'cash',
+                `Partial return - ${processedItems.length} items returned`
+            );
         }
 
         if (paymentStatus) {

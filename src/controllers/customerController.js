@@ -60,38 +60,59 @@ exports.findOrCreateCustomer = async (name, phoneNumber) => {
     }
 };
 
-// Search customer by phone
+// Search customer by phone or name
 exports.searchCustomer = async (req, res) => {
     try {
-        const { phone } = req.query;
+        const { phone, name } = req.query;
         
-        if (!phone) {
+        if (!phone && !name) {
             return res.status(400).json({
                 success: false,
-                message: 'Phone number is required'
+                message: 'Phone number or name is required for search'
             });
         }
 
-        const customer = await Customer.findOne({ phoneNumber: phone });
+        let searchFilter = {};
+
+        // Search by phone (exact match)
+        if (phone) {
+            searchFilter.phoneNumber = phone;
+        }
+
+        // Search by name (partial match, case-insensitive)
+        if (name) {
+            searchFilter.name = { $regex: name, $options: 'i' };
+        }
+
+        const customers = await Customer.find(searchFilter);
         
-        if (!customer) {
+        if (!customers || customers.length === 0) {
             return res.status(404).json({
                 success: false,
-                message: 'Customer not found'
+                message: 'No customers found'
             });
         }
 
-        // Get recent bookings
-        const bookings = await Booking.find({ customerId: customer._id })
-            .sort({ createdAt: -1 })
-            .limit(5);
+        // If single customer found, get recent bookings
+        if (customers.length === 1) {
+            const bookings = await Booking.find({ customerId: customers[0]._id })
+                .sort({ createdAt: -1 })
+                .limit(5);
 
+            return res.json({
+                success: true,
+                data: {
+                    customer: customers[0],
+                    recentBookings: bookings
+                }
+            });
+        }
+
+        // Multiple customers found, return list
         res.json({
             success: true,
-            data: {
-                customer,
-                recentBookings: bookings
-            }
+            count: customers.length,
+            data: customers
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

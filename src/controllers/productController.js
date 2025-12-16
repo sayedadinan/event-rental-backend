@@ -104,3 +104,42 @@ exports.deleteProduct = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+// Search products by name or category
+exports.searchProducts = async (req, res) => {
+    try {
+        const { query, category } = req.query;
+
+        if (!query && !category) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide search query or category'
+            });
+        }
+
+        let searchFilter = {};
+
+        // Search by name or description (case-insensitive)
+        if (query) {
+            searchFilter.$or = [
+                { name: { $regex: query, $options: 'i' } },
+                { description: { $regex: query, $options: 'i' } }
+            ];
+        }
+
+        // Filter by category
+        if (category) {
+            searchFilter.category = { $regex: category, $options: 'i' };
+        }
+
+        const products = await Product.find(searchFilter).sort({ name: 1 });
+
+        res.json({
+            success: true,
+            count: products.length,
+            data: products
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};

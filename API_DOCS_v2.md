@@ -41,6 +41,70 @@ GET /api/products
 }
 ```
 
+### Search Products 🆕
+```http
+GET /api/products/search?query={searchTerm}&category={categoryName}
+```
+
+**Query Parameters:**
+- `query` (optional) - Search by product name or description (case-insensitive)
+- `category` (optional) - Filter by category (case-insensitive)
+- At least one parameter required
+
+**Example Requests:**
+```http
+GET /api/products/search?query=tent
+GET /api/products/search?category=Camping
+GET /api/products/search?query=chair&category=Furniture
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "count": 2,
+  "data": [
+    {
+      "_id": "675a123...",
+      "name": "Camping Tent",
+      "category": "Camping",
+      "totalQuantity": 10,
+      "availableQuantity": 8,
+      "perDayRent": 500,
+      "description": "Large camping tent for 6 people"
+    },
+    {
+      "_id": "675a456...",
+      "name": "Small Tent",
+      "category": "Camping",
+      "totalQuantity": 5,
+      "availableQuantity": 3,
+      "perDayRent": 300,
+      "description": "Compact tent for 2 people"
+    }
+  ]
+}
+```
+
+**Flutter Example:**
+```dart
+// Product search
+Future<List<Product>> searchProducts(String query, {String? category}) async {
+  final queryParams = <String, String>{};
+  if (query.isNotEmpty) queryParams['query'] = query;
+  if (category != null && category.isNotEmpty) queryParams['category'] = category;
+  
+  final uri = Uri.parse('$baseUrl/products/search').replace(queryParameters: queryParams);
+  final response = await http.get(uri);
+  
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    return (data['data'] as List).map((json) => Product.fromJson(json)).toList();
+  }
+  throw Exception('Failed to search products');
+}
+```
+
 ### Create Product
 ```http
 POST /api/products
@@ -133,7 +197,7 @@ GET /api/customers/:id
 GET /api/customers/search?phone=9876543210
 ```
 
-**Response:**
+**Response (Single Customer):**
 ```json
 {
   "success": true,
@@ -145,6 +209,68 @@ GET /api/customers/search?phone=9876543210
     },
     "recentBookings": [...]
   }
+}
+```
+
+**Response (Multiple Customers):**
+```json
+{
+  "success": true,
+  "count": 3,
+  "data": [
+    {
+      "_id": "675b456...",
+      "name": "John Doe",
+      "phoneNumber": "9876543210"
+    },
+    {
+      "_id": "675b789...",
+      "name": "Johnny Smith",
+      "phoneNumber": "9876543211"
+    }
+  ]
+}
+```
+
+**Enhanced Features:** 🆕
+- Now supports search by name: `?name=John`
+- Search by phone: `?phone=9876543210`
+- Combined search: `?name=John&phone=9876543210`
+- Name search is case-insensitive and partial match
+- Phone search is exact match
+- Returns single customer with bookings if only one match
+- Returns list of customers if multiple matches
+
+**Flutter Example:**
+```dart
+// Search by name
+Future<List<Customer>> searchCustomersByName(String name) async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/customers/search?name=$name'),
+  );
+  
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    if (data['data'] is List) {
+      return (data['data'] as List).map((json) => Customer.fromJson(json)).toList();
+    } else {
+      return [Customer.fromJson(data['data']['customer'])];
+    }
+  }
+  throw Exception('No customers found');
+}
+
+// Search by phone (existing)
+Future<Customer> searchCustomerByPhone(String phone) async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/customers/search?phone=$phone'),
+  );
+  
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    return Customer.fromJson(data['data']['customer']);
+  }
+  throw Exception('Customer not found');
 }
 ```
 

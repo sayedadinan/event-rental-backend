@@ -18,7 +18,7 @@ const customerTransactionSchema = new mongoose.Schema({
     },
     transactionType: {
         type: String,
-        enum: ['booking', 'payment', 'return'],
+        enum: ['booking', 'payment', 'return', 'manual_debit', 'manual_credit', 'adjustment'],
         required: true
     },
     amount: {

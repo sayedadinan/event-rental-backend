@@ -161,7 +161,8 @@ exports.createCustomer = async (req, res) => {
             name,
             phoneNumber: phone,
             email,
-            address
+            address,
+            aadharNumber: req.body.aadharNumber || ''
         });
 
         res.status(201).json({
@@ -176,7 +177,7 @@ exports.createCustomer = async (req, res) => {
 // Update customer
 exports.updateCustomer = async (req, res) => {
     try {
-        const { name, phone, email, address } = req.body;
+        const { name, phone, email, address, aadharNumber } = req.body;
 
         const customer = await Customer.findById(req.params.id);
         
@@ -187,11 +188,20 @@ exports.updateCustomer = async (req, res) => {
             });
         }
 
+        // Validate Aadhar if provided
+        if (aadharNumber && !/^\d{12}$/.test(aadharNumber)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Aadhar number must be 12 digits'
+            });
+        }
+
         // Update fields
         if (name) customer.name = name;
         if (phone) customer.phoneNumber = phone;
         if (email !== undefined) customer.email = email;
         if (address !== undefined) customer.address = address;
+        if (aadharNumber !== undefined) customer.aadharNumber = aadharNumber;
 
         await customer.save();
 
@@ -343,19 +353,22 @@ exports.createTransaction = async (customerId, customerName, transactionType, am
         let currentBalance = 0;
 
         transactions.forEach(transaction => {
-            if (transaction.transactionType === 'booking') {
+            if (transaction.transactionType === 'booking' || transaction.transactionType === 'manual_debit') {
                 currentBalance += transaction.amount;
-            } else if (transaction.transactionType === 'payment' || transaction.transactionType === 'return') {
+            } else if (transaction.transactionType === 'payment' || transaction.transactionType === 'return' || transaction.transactionType === 'manual_credit') {
                 currentBalance -= transaction.amount;
             }
+            // 'adjustment' type doesn't affect balance calculation
         });
 
         // Calculate new balance
         let balanceAfter;
-        if (transactionType === 'booking') {
+        if (transactionType === 'booking' || transactionType === 'manual_debit') {
             balanceAfter = currentBalance + amount;
-        } else {
+        } else if (transactionType === 'payment' || transactionType === 'return' || transactionType === 'manual_credit') {
             balanceAfter = currentBalance - amount;
+        } else {
+            balanceAfter = currentBalance; // adjustment
         }
 
         // Create transaction
@@ -375,5 +388,155 @@ exports.createTransaction = async (customerId, customerName, transactionType, am
     } catch (error) {
         console.error('Error creating transaction:', error);
         return null;
+    }
+};
+
+// Add manual ledger entry (for old debts, credits, or adjustments)
+exports.addManualEntry = async (req, res) => {
+    try {
+        const customerId = req.params.id;
+        const { type, amount, description } = req.body;
+
+        // Validate type
+        const validTypes = ['debit', 'credit'];
+        if (!type || !validTypes.includes(type)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Type must be either "debit" (customer owes) or "credit" (customer paid)'
+            });
+        }
+
+        // Validate amount
+        if (!amount || amount <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Valid amount is required (must be positive)'
+            });
+        }
+
+        // Validate description
+        if (!description || description.trim() === '') {
+            return res.status(400).json({
+                success: false,
+                message: 'Description is required for manual entries'
+            });
+        }
+
+        const customer = await Customer.findById(customerId);
+        
+        if (!customer) {
+            return res.status(404).json({
+                success: false,
+                message: 'Customer not found'
+            });
+        }
+
+        // Create transaction
+        const transactionType = type === 'debit' ? 'manual_debit' : 'manual_credit';
+        const transaction = await this.createTransaction(
+            customerId,
+            customer.name,
+            transactionType,
+            amount,
+            null,
+            type === 'credit' ? 'cash' : null,
+            description
+        );
+
+        if (!transaction) {
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to create ledger entry'
+            });
+        }
+
+        res.status(201).json({
+            success: true,
+            message: 'Manual ledger entry added successfully',
+            data: transaction
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Get customer ledger summary (for sharing with customer)
+exports.getLedgerSummary = async (req, res) => {
+    try {
+        const customerId = req.params.id;
+
+        const customer = await Customer.findById(customerId);
+        
+        if (!customer) {
+            return res.status(404).json({
+                success: false,
+                message: 'Customer not found'
+            });
+        }
+
+        // Get all transactions
+        const transactions = await CustomerTransaction.find({ customerId })
+            .sort({ createdAt: 1 });
+
+        // Calculate totals
+        let totalBookings = 0;
+        let totalPaid = 0;
+        let totalDebits = 0;
+        let totalCredits = 0;
+
+        transactions.forEach(transaction => {
+            if (transaction.transactionType === 'booking' || transaction.transactionType === 'manual_debit') {
+                totalBookings += transaction.amount;
+                if (transaction.transactionType === 'manual_debit') {
+                    totalDebits += transaction.amount;
+                }
+            } else if (transaction.transactionType === 'payment' || transaction.transactionType === 'return' || transaction.transactionType === 'manual_credit') {
+                totalPaid += transaction.amount;
+                if (transaction.transactionType === 'manual_credit') {
+                    totalCredits += transaction.amount;
+                }
+            }
+        });
+
+        const currentBalance = totalBookings - totalPaid;
+
+        // Get recent transactions (last 10)
+        const recentTransactions = transactions.slice(-10).reverse().map(t => ({
+            date: t.createdAt,
+            type: t.transactionType,
+            amount: t.amount,
+            balance: t.balanceAfter,
+            notes: t.notes,
+            paymentMethod: t.paymentMethod
+        }));
+
+        // Get active bookings count
+        const Booking = require('../models/Booking');
+        const activeBookings = await Booking.countDocuments({
+            customerId,
+            status: { $in: ['active', 'overdue'] }
+        });
+
+        res.json({
+            success: true,
+            data: {
+                summary: {
+                    customerName: customer.name,
+                    customerPhone: customer.phoneNumber,
+                    totalBookings: customer.totalBookings || 0,
+                    activeBookings,
+                    currentBalance,
+                    totalDebits: totalBookings,
+                    totalCredits: totalPaid,
+                    manualDebits: totalDebits,
+                    manualCredits: totalCredits,
+                    status: currentBalance > 0 ? 'pending' : 'clear'
+                },
+                recentTransactions,
+                generatedAt: new Date()
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
     }
 };

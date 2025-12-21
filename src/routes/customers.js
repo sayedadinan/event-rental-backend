@@ -10,7 +10,9 @@ router.post('/', customerController.createCustomer);
 
 // Specific :id routes (MUST be before generic :id)
 router.get('/:id/ledger', customerController.getCustomerLedger);
+router.get('/:id/ledger-summary', customerController.getLedgerSummary);
 router.post('/:id/payment', customerController.recordPayment);
+router.post('/:id/manual-entry', customerController.addManualEntry);
 
 // Generic dynamic routes last
 router.get('/:id', customerController.getCustomer);

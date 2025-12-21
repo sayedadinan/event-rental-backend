@@ -27,6 +27,17 @@ const customerSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
+    aadharNumber: {
+        type: String,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                if (!v) return true;
+                return /^\d{12}$/.test(v);
+            },
+            message: 'Aadhar number must be 12 digits'
+        }
+    },
     totalBookings: {
         type: Number,
         default: 0

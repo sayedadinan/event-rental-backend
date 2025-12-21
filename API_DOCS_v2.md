@@ -476,6 +476,9 @@ Content-Type: application/json
   "customerPhone": "9876543210",
   "bookingDate": "2025-12-20",
   "returnDate": "2025-12-25",
+  "discount": 200,
+  "discountReason": "Loyal customer - 10% off",
+  "aadharNumber": "123456789012",
   "items": [
     {
       "productId": "675a123...",
@@ -488,6 +491,11 @@ Content-Type: application/json
   ]
 }
 ```
+
+**New Fields:** 🆕
+- `discount` (optional) - Discount amount in ₹
+- `discountReason` (optional) - Reason for discount
+- `aadharNumber` (optional) - Customer's 12-digit Aadhar card number
 
 **Response:**
 ```json
@@ -513,9 +521,13 @@ Content-Type: application/json
       }
     ],
     "totalAmount": 5000,
+    "discount": 200,
+    "discountReason": "Loyal customer - 10% off",
+    "finalAmount": 4800,
     "paymentStatus": "pending",
     "amountPaid": 0,
-    "amountPending": 5000,
+    "amountPending": 4800,
+    "aadharNumber": "123456789012",
     "status": "active",
     "itemsSummary": {
       "totalItems": 2,
@@ -592,6 +604,122 @@ Content-Type: application/json
 ```
 
 **Note:** Updating payment automatically creates a ledger transaction.
+
+### Edit Payment Amount 🆕
+```http
+PUT /api/bookings/:id/edit-payment
+Content-Type: application/json
+```
+
+**Description:** Edit/modify the payment amount for a booking (increase or decrease)
+
+**Request Body:**
+```json
+{
+  "newAmountPaid": 3000,
+  "paymentMethod": "cash"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Payment edited successfully",
+  "data": {
+    "booking": {...},
+    "previousAmount": 2000,
+    "newAmount": 3000,
+    "difference": 1000
+  }
+}
+```
+
+**Features:**
+- Validates new amount doesn't exceed final amount (after discount)
+- Auto-updates payment status (pending/partial/full)
+- Creates ledger transaction for the difference
+- Shows previous vs new amount comparison
+
+**Flutter Example:**
+```dart
+Future<void> editPayment(String bookingId, double newAmount) async {
+  final response = await http.put(
+    Uri.parse('$baseUrl/bookings/$bookingId/edit-payment'),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({
+      'newAmountPaid': newAmount,
+      'paymentMethod': 'cash',
+    }),
+  );
+  
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    print('Payment edited. Difference: ₹${data['data']['difference']}');
+  }
+}
+```
+
+### Add/Update Discount 🆕
+```http
+PUT /api/bookings/:id/discount
+Content-Type: application/json
+```
+
+**Description:** Add or modify discount for a booking
+
+**Request Body:**
+```json
+{
+  "discount": 500,
+  "discountReason": "Festival offer - 10% off"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Discount updated successfully",
+  "data": {
+    "booking": {...},
+    "summary": {
+      "totalAmount": 5000,
+      "previousDiscount": 200,
+      "newDiscount": 500,
+      "previousFinalAmount": 4800,
+      "newFinalAmount": 4500,
+      "amountPaid": 2000,
+      "amountPending": 2500
+    }
+  }
+}
+```
+
+**Features:**
+- Validates discount doesn't exceed total amount
+- Recalculates final amount and pending amount
+- Auto-updates payment status based on new final amount
+- Can set discount to 0 to remove discount
+
+**Flutter Example:**
+```dart
+Future<void> addDiscount(String bookingId, double discount, String reason) async {
+  final response = await http.put(
+    Uri.parse('$baseUrl/bookings/$bookingId/discount'),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({
+      'discount': discount,
+      'discountReason': reason,
+    }),
+  );
+  
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    print('Discount applied. New final amount: ₹${data['data']['summary']['newFinalAmount']}');
+  }
+}
+```
 
 ---
 

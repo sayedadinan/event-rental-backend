@@ -48,13 +48,21 @@ const formatBookingWithRemainingInfo = (booking) => {
 // Create new booking
 exports.createBooking = async (req, res) => {
     try {
-        const { customerName, customerPhone, bookingDate, returnDate, items } = req.body;
+        const { customerName, customerPhone, bookingDate, returnDate, items, discount, discountReason, aadharNumber } = req.body;
 
         // Validate required fields
         if (!customerName || !customerPhone || !bookingDate || !returnDate || !items || items.length === 0) {
             return res.status(400).json({
                 success: false,
                 message: 'Missing required fields'
+            });
+        }
+
+        // Validate Aadhar if provided
+        if (aadharNumber && !/^\d{12}$/.test(aadharNumber)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Aadhar number must be 12 digits'
             });
         }
 
@@ -121,6 +129,10 @@ exports.createBooking = async (req, res) => {
             pendingQuantity: item.quantity
         }));
 
+        // Calculate final amount after discount
+        const discountAmount = discount || 0;
+        const finalAmount = totalAmount - discountAmount;
+
         const newBooking = await Booking.create({
             customerId: customer._id,
             customerName: customer.name,
@@ -129,9 +141,13 @@ exports.createBooking = async (req, res) => {
             returnDate,
             items: bookingItemsWithTracking,
             totalAmount,
+            discount: discountAmount,
+            discountReason: discountReason || '',
+            finalAmount,
             paymentStatus: 'pending',
             amountPaid: 0,
-            amountPending: totalAmount,
+            amountPending: finalAmount,
+            aadharNumber: aadharNumber || '',
             status: 'active'
         });
 
@@ -144,10 +160,12 @@ exports.createBooking = async (req, res) => {
             customer._id,
             customer.name,
             'booking',
-            totalAmount,
+            finalAmount,
             newBooking._id,
             null,
-            `New booking created - ${bookingItems.length} items`
+            discountAmount > 0 
+                ? `New booking - ${bookingItems.length} items (₹${totalAmount} - ₹${discountAmount} discount = ₹${finalAmount})`
+                : `New booking created - ${bookingItems.length} items`
         );
 
         // Populate product details
@@ -334,8 +352,17 @@ exports.updatePayment = async (req, res) => {
 
         // Update payment
         if (amountPaid !== undefined) {
+            // Validate payment amount
+            const finalAmount = booking.finalAmount || booking.totalAmount;
+            if (amountPaid > finalAmount) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Payment amount (₹${amountPaid}) cannot exceed final amount (₹${finalAmount})`
+                });
+            }
+
             booking.amountPaid = amountPaid;
-            booking.amountPending = booking.totalAmount - amountPaid;
+            booking.amountPending = finalAmount - amountPaid;
         }
 
         if (paymentStatus) {
@@ -343,7 +370,8 @@ exports.updatePayment = async (req, res) => {
         }
 
         // Auto-set payment status based on amount
-        if (booking.amountPaid >= booking.totalAmount) {
+        const finalAmount = booking.finalAmount || booking.totalAmount;
+        if (booking.amountPaid >= finalAmount) {
             booking.paymentStatus = 'full';
             booking.amountPending = 0;
         } else if (booking.amountPaid > 0) {
@@ -362,7 +390,7 @@ exports.updatePayment = async (req, res) => {
                 paymentReceived,
                 booking._id,
                 paymentMethod || 'cash',
-                'Payment update'
+                'Payment updated'
             );
         }
 
@@ -375,3 +403,160 @@ exports.updatePayment = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+// Edit payment amount (separate endpoint for clarity)
+exports.editPayment = async (req, res) => {
+    try {
+        const { newAmountPaid, paymentMethod } = req.body;
+
+        if (newAmountPaid === undefined || newAmountPaid < 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Valid payment amount is required'
+            });
+        }
+
+        const booking = await Booking.findById(req.params.id)
+            .populate('customerId', 'name phoneNumber');
+        
+        if (!booking) {
+            return res.status(404).json({
+                success: false,
+                message: 'Booking not found'
+            });
+        }
+
+        const finalAmount = booking.finalAmount || booking.totalAmount;
+        
+        if (newAmountPaid > finalAmount) {
+            return res.status(400).json({
+                success: false,
+                message: `Payment amount (₹${newAmountPaid}) cannot exceed final amount (₹${finalAmount})`
+            });
+        }
+
+        const previousAmountPaid = booking.amountPaid;
+        const difference = newAmountPaid - previousAmountPaid;
+
+        // Update payment
+        booking.amountPaid = newAmountPaid;
+        booking.amountPending = finalAmount - newAmountPaid;
+
+        // Auto-set payment status
+        if (newAmountPaid >= finalAmount) {
+            booking.paymentStatus = 'full';
+            booking.amountPending = 0;
+        } else if (newAmountPaid > 0) {
+            booking.paymentStatus = 'partial';
+        } else {
+            booking.paymentStatus = 'pending';
+        }
+
+        await booking.save();
+
+        // Create ledger transaction for the difference
+        if (difference !== 0) {
+            const transactionType = difference > 0 ? 'payment' : 'booking';
+            const description = difference > 0 
+                ? `Payment edited: increased by ₹${difference}` 
+                : `Payment edited: decreased by ₹${Math.abs(difference)}`;
+            
+            await createTransaction(
+                booking.customerId._id,
+                booking.customerId.name,
+                transactionType,
+                Math.abs(difference),
+                booking._id,
+                paymentMethod || 'cash',
+                description
+            );
+        }
+
+        res.json({
+            success: true,
+            message: 'Payment edited successfully',
+            data: {
+                booking: formatBookingWithRemainingInfo(booking),
+                previousAmount: previousAmountPaid,
+                newAmount: newAmountPaid,
+                difference
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// Add or update discount
+exports.updateDiscount = async (req, res) => {
+    try {
+        const { discount, discountReason } = req.body;
+
+        if (discount === undefined || discount < 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Valid discount amount is required (0 or positive)'
+            });
+        }
+
+        const booking = await Booking.findById(req.params.id)
+            .populate('customerId', 'name phoneNumber');
+        
+        if (!booking) {
+            return res.status(404).json({
+                success: false,
+                message: 'Booking not found'
+            });
+        }
+
+        if (discount > booking.totalAmount) {
+            return res.status(400).json({
+                success: false,
+                message: `Discount (₹${discount}) cannot exceed total amount (₹${booking.totalAmount})`
+            });
+        }
+
+        const previousDiscount = booking.discount || 0;
+        const previousFinalAmount = booking.finalAmount || booking.totalAmount;
+
+        // Update discount
+        booking.discount = discount;
+        booking.discountReason = discountReason || '';
+        booking.finalAmount = booking.totalAmount - discount;
+        
+        // Recalculate pending amount
+        booking.amountPending = booking.finalAmount - booking.amountPaid;
+
+        // Update payment status
+        if (booking.amountPaid >= booking.finalAmount) {
+            booking.paymentStatus = 'full';
+            booking.amountPending = 0;
+        } else if (booking.amountPaid > 0) {
+            booking.paymentStatus = 'partial';
+        } else {
+            booking.paymentStatus = 'pending';
+        }
+
+        await booking.save();
+
+        res.json({
+            success: true,
+            message: 'Discount updated successfully',
+            data: {
+                booking: formatBookingWithRemainingInfo(booking),
+                summary: {
+                    totalAmount: booking.totalAmount,
+                    previousDiscount,
+                    newDiscount: discount,
+                    previousFinalAmount,
+                    newFinalAmount: booking.finalAmount,
+                    amountPaid: booking.amountPaid,
+                    amountPending: booking.amountPending
+                }
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+

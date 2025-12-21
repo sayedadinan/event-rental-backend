@@ -74,6 +74,19 @@ const bookingSchema = new mongoose.Schema({
         required: true,
         min: [0, 'Total amount cannot be negative']
     },
+    discount: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    discountReason: {
+        type: String,
+        default: ''
+    },
+    finalAmount: {
+        type: Number,
+        default: function() { return this.totalAmount - (this.discount || 0); }
+    },
     paymentStatus: {
         type: String,
         enum: ['pending', 'partial', 'full'],
@@ -86,7 +99,18 @@ const bookingSchema = new mongoose.Schema({
     },
     amountPending: {
         type: Number,
-        default: function() { return this.totalAmount; }
+        default: function() { return (this.totalAmount - (this.discount || 0)); }
+    },
+    aadharNumber: {
+        type: String,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                if (!v) return true;
+                return /^\d{12}$/.test(v);
+            },
+            message: 'Aadhar number must be 12 digits'
+        }
     },
     status: {
         type: String,

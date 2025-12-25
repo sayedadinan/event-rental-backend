@@ -433,7 +433,7 @@ exports.addManualEntry = async (req, res) => {
 
         // Create transaction
         const transactionType = type === 'debit' ? 'manual_debit' : 'manual_credit';
-        const transaction = await this.createTransaction(
+        const transaction = await exports.createTransaction(
             customerId,
             customer.name,
             transactionType,

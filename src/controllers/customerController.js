@@ -233,19 +233,33 @@ exports.getCustomerLedger = async (req, res) => {
             .sort({ createdAt: -1 })
             .populate('bookingId', 'bookingDate returnDate status');
 
-        // Calculate totals
-        let totalBookings = 0;
-        let totalPaid = 0;
+        // Calculate totals (including manual entries)
+        let totalBookings = 0;      // From actual bookings
+        let totalManualDebits = 0;  // Old debts added manually
+        let totalPaid = 0;          // Payments received
+        let totalReturns = 0;       // Returns/refunds
+        let totalManualCredits = 0; // Manual credits added
 
         transactions.forEach(transaction => {
             if (transaction.transactionType === 'booking') {
                 totalBookings += transaction.amount;
-            } else if (transaction.transactionType === 'payment' || transaction.transactionType === 'return') {
+            } else if (transaction.transactionType === 'manual_debit') {
+                totalManualDebits += transaction.amount;
+            } else if (transaction.transactionType === 'payment') {
                 totalPaid += transaction.amount;
+            } else if (transaction.transactionType === 'return') {
+                totalReturns += transaction.amount;
+            } else if (transaction.transactionType === 'manual_credit') {
+                totalManualCredits += transaction.amount;
             }
         });
 
-        const totalPending = totalBookings - totalPaid;
+        // Total debits = bookings + manual debits (what customer owes)
+        const totalDebits = totalBookings + totalManualDebits;
+        // Total credits = payments + returns + manual credits (what customer paid)
+        const totalCredits = totalPaid + totalReturns + totalManualCredits;
+        // Pending = total owed - total paid
+        const totalPending = totalDebits - totalCredits;
 
         res.json({
             success: true,
@@ -253,9 +267,21 @@ exports.getCustomerLedger = async (req, res) => {
                 customerId: customer._id,
                 customerName: customer.name,
                 customerPhone: customer.phoneNumber,
-                totalBookings,
-                totalPaid,
-                totalPending,
+                // Summary
+                totalDebits,           // Total amount customer owes (bookings + old debts)
+                totalCredits,          // Total amount customer paid (payments + returns + credits)
+                totalPending,          // Net balance (positive = customer owes, negative = overpaid)
+                // Breakdown
+                breakdown: {
+                    bookings: totalBookings,
+                    manualDebits: totalManualDebits,
+                    payments: totalPaid,
+                    returns: totalReturns,
+                    manualCredits: totalManualCredits
+                },
+                // Legacy fields for backward compatibility
+                totalBookings: totalDebits,
+                totalPaid: totalCredits,
                 transactions
             }
         });
